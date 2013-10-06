@@ -10,8 +10,8 @@ Plugin for comment text
   Require all granted<br>
   Options Indexes FollowSymLinks<br>
   AllowOverride All<br>
-В htaccess,который расположен в папке api/db, указаны пути для редиректа в папку selection,поэтому проект должен располо-
-гаться в папке Comment_text.
+В htaccess,который расположен в папке api/db, указаны пути для редиректа в папку Comment_text,поэтому проект должен 
+располагаться в папке Comment_text.
 
 НАСТРОЙКИ ДОСТУПА К БД<br>
 Настройки к базе данных прописаны в конфигурационном файле \api\conf\config.php. Дамп базы данных Mysql находится в файле 

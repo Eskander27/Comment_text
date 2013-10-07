@@ -22,7 +22,7 @@ setComment.prototype = {
 			urlSelectedRead:'url_selected',
 			flagFullWords:true
 		},options);
-		this.MAX_TITLE_SYMBOL = 35;
+		this.MAX_TITLE_SYMBOL = 45;
 		this.TIMEOUT = 360;
 		this.idClient = this.idClient || this.getIdClient();
 		this.lastId = '';
@@ -252,7 +252,7 @@ setComment.prototype = {
 		return main_div;
 	},
 	initAuth: function(){
-		var _this = this;
+		var _this = this,count=0;
 		this.authStr = '';
 		if(typeof this.options.withAutorization!='undefined' && $.type(this.options.withAutorization)=='object' ){
 			if(this.options.withAutorization.VK !=null && this.options.withAutorization.VK.apiId !=null){
@@ -272,18 +272,80 @@ setComment.prototype = {
 				mailru.loader.require('api', function(){
 					mailru.connect.init(_this.options.withAutorization.MRu.apiId, _this.options.withAutorization.MRu.key);
 					mailru.events.listen(mailru.connect.events.login, function(session) {
-						if(session.vid){
+						if(session.vid){						
 							mailru.common.users.getInfo(function(user_list) {
-								_this.authInfoCallbackMRu(user_list,_this);
-								_this.closeModalAuth();
+									if(typeof user_list['error'] != 'undefined' && count==0){
+										console.log('-');
+										count++;
+										mailru.connect.logout();
+										setTimeout(function(){
+											mailru.connect.login(['widget']);
+										},2000);
+									}else{
+										console.log('+');
+										count=0;
+										_this.authInfoCallbackMRu(user_list,_this);
+										_this.closeModalAuth();
+									}
 							}, session.vid);
 						}
-					});			
+					});
+					mailru.events.listen(mailru.connect.events.windowClose, function(session) {
+						_this.showModal(_this.dataComments);
+					});
+					_this.redefineMailru();
 				});
+				/*with(document.getElementsByTagName('head')[0].appendChild(document.createElement('script'))){
+					type = 'text/javascript';
+					src = 'js/api.js';
+				}*/
 			}
 		}else if (this.options.withAutorization === false){
 			this.authStr += ' '+ 'authNO';
 		}
+	},
+	redefineMailru:function(){
+		mailru.connect.login=function(scope) {
+				if (mailru.session && mailru.session.is_app_user) {
+					mailru.events.notify(mailru.connect.events.login, mailru.session, mailru.utils.getCookie(mailru.def.CONNECT_COOKIE));
+				} else {
+					var popupParams = {
+						app_id: mailru.app_id,
+						host: 'http://' + mailru.def.DOMAIN
+					}
+					if (mailru.intercomType == 'flash') {
+						popupParams.fcid = mailru.intercom.flash.params.fcid;
+					}
+					var scope = scope || '';
+					try {
+						scope = scope.join().match(/\w*/g).join(' ');
+					} catch(e) {
+						scope = scope.match(/\w*/g).join(' ')
+					}
+					var url = mailru.def.CONNECT_OAUTH + 'client_id=' + mailru.app_id + '&response_type=token&display=popup&redirect_uri=' + encodeURIComponent(mailru.def.PROXY_URL + 'app_id=' + mailru.app_id + '&login=1' + (popupParams.fcid ? '&fcid=' + popupParams.fcid : '') + (popupParams.host ? '&host=' + popupParams.host : '')) + '&' + mailru.utils.makeGet(popupParams) + '&' + mailru.utils.makeGet({scope: scope}) + (mailru.partner_id ? '&site_id=' + encodeURIComponent(mailru.partner_id) : '') + (mailru.isGame ? '&game=1' : '');
+					var w = window.open(url, 'mrc_login', 'width=445, height=400, status=0, scrollbars=0, menubar=0, toolbar=0, resizable=1');
+					if (mailru.isOpera) {
+						window.onfocus = function() {
+							if (!mailru.session.login) {
+								window.onfocus = null;
+								mailru.events.notify(mailru.connect.events.windowClose);
+							}
+						};
+					} else {
+						if (typeof w !== 'undefined' && w != null) {
+							var tmr = setInterval(function() {
+								if (w.closed) {
+									clearInterval(tmr);
+									mailru.events.notify(mailru.connect.events.windowClose);
+								}
+							}, 500);
+						} else {
+							if (!mailru.session.login) mailru.events.notify(mailru.connect.events.loginFail);
+						}
+					}
+
+				}
+			}	
 	},
 	authInfoCallbackFB:function(response,holder) {
 		var _this;
@@ -293,11 +355,12 @@ setComment.prototype = {
 				FB.authObj = {};
 				FB.authObj.photo = response.data.url;
 				FB.api('/me', function(response) {
-					FB.authObj.name = response.name;
 					_this.authObj ={
 						"photo":FB.authObj.photo,
-						"nick":FB.authObj.name
-					}	
+						"nick":response.name,
+						"type":'Facebook',
+						"uid":response.id
+					}
 					$(document).triggerHandler('authFB');
 				});
 			}
@@ -313,7 +376,9 @@ setComment.prototype = {
 				}
 				_this.authObj ={
 						"photo":VK.authObj.photo,
-						"nick":VK.authObj.name
+						"nick":VK.authObj.name,
+						"uid":VK.authObj.uid,
+						"type":'VK'
 						};
 				$(document).triggerHandler('authVK');
 			});
@@ -322,9 +387,12 @@ setComment.prototype = {
 		}
 	},
 	authInfoCallbackMRu:function(response,holder) {
-		mailru.authObj = {};
-		mailru.authObj.photo = response[0].pic;
-		mailru.authObj.name = response[0].nick;
+		var _this = holder;
+		_this.authObj = {};
+		_this.authObj.type = 'Mailru';
+		_this.authObj.photo = response[0].pic;
+		_this.authObj.nick = response[0].nick;
+		_this.authObj.uid = response[0].uid;
 		$(document).triggerHandler('authMRu');
 	},
 	getCommentObj:function(obj,parent){
@@ -545,12 +613,12 @@ setComment.prototype = {
 		$(this.options.holder).bind('mousedown',function(e){
 			if($(e.target).hasClass(_this.options.cssCommented)===false){
 				_this.flagClickCommented = true;
-				var self = $(this).get(0);
+				var obj,self = $(this).get(0);
 					_this.hideCommentToolTip();
 					_this.fullhtml = _this.lastHTML || _this.getFullHTML();
 					_this.fulltext = _this.getFullText();
 					_this.prepare(self);
-				var obj = _this.getMousePosition(e);
+					obj = _this.getMousePosition(e);
 					left = obj.left;
 					top = obj.top;
 			}else{
@@ -738,28 +806,12 @@ setComment.prototype = {
 			objModal.flagmove = false;
 		}
 	},
-	hookEvntCloseAuthWnd: function(wndName,holder,flag){
-		var _this;
-		if(holder) _this = holder; else _this = this;
-		if(!$.browser.opera && flag===true){//ловим событие закрытия авторизационного окна(не работает в опера)
-			win = window.open('',wndName);//в Опера почемуто создает новое окно,не удается получить ссылку на существующее окно авторизации
-			if(typeof win!='undefined' && win !=null){
-					var timer = setInterval(function() {   
-					if(win.closed) {  
-						clearInterval(timer);
-						_this.showModal(_this.dataComments);
-					}  
-				}, 1000);
-			}
-		}
-	},
 	createVKbtn: function(holder){
-		var _this,flagOpenWnd=false;
+		var _this;
 		if(holder) _this = holder; else _this = this;
 		var blockVK = $('<div/>').addClass('auth_type_bt').click(function(){
 				_this.hideModalAuth(true);
 				VK.Auth.login(function(response){
-					flagOpenWnd=true;
 					_this.authInfoCallbackVK(response,_this);
 					//_this.closeModalAuth();
 				});
@@ -774,8 +826,7 @@ setComment.prototype = {
 		if(holder) _this = holder; else _this = this;
 		var blockMRu = $('<div/>').addClass('auth_type_bt').click(function(){
 			_this.hideModalAuth(true);
-			mailru.connect.login(['widget']);	
-			_this.hookEvntCloseAuthWnd('mrc_login',_this,true);			
+			mailru.connect.login(['widget']);
 		});
 		var btnMRu = $('<div/>').addClass('auth_type_bt_mru');
 		var btnTitleMRu=$('<div/>').addClass('auth_type_bt_title').text('Mail.ru');
@@ -884,7 +935,8 @@ setComment.prototype = {
 			titleText = title.substr(0,_this.MAX_TITLE_SYMBOL)+
 				'<span style="cursor:pointer;" title="'+title+'" >...</span>';
 		}else 
-			titleText = title;			
+			titleText = title;
+			
 		if(this.modal == null){
 			this.modal = $('<div/>').attr({'id':'modal_comments','dataparentid':dataParentId}).addClass('modal').css('display','none')
 				.bind({ 'mousedown': function(event){_this.mouseDownModal(event,_this.modal)},
@@ -918,7 +970,7 @@ setComment.prototype = {
 				}
 			return true;
 		}else{
-			$(this.modalTitle).text(title);
+			$(this.modalTitle).html(titleText);//.text(title);
 			$(this.modal).attr({'dataparentid':dataParentId});	
 			return false;
 		}
@@ -1108,6 +1160,12 @@ setComment.prototype = {
 			_this.countComment = '';
 		function getContent(id){
 			findTxt = fullhtml.slice(start, end);
+			var pos = findTxt.search(_this.options.cssCommented);
+			if(pos != -1){
+				_this.setNewHTML(_this.resetHTML);
+				_this.hideCommentToolTip();
+				return;
+			}
 			var st1 = '</span>';
 			var st2 = '<span class="' + className + '" data-parentid="'+ id + '">';
 			findTxt = findTxt.replace(/(<.*?>)/g,st1 + '$1' + st2);	

@@ -60,7 +60,9 @@ CREATE TABLE IF NOT EXISTS `selected_blocks` (
 
 CREATE TABLE IF NOT EXISTS `users` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
+  `idNet` bigint(20) NOT NULL,
+  `NameNet` varchar(12) NOT NULL,
   `nickname` varchar(40) NOT NULL,
   `url_photo` varchar(100) NOT NULL,
   UNIQUE KEY `id` (`id`)
-) ENGINE=InnoDB  DEFAULT CHARSET=utf8 ;
+) ENGINE=InnoDB  DEFAULT CHARSET=utf8;

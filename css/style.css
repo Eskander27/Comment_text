@@ -14,6 +14,7 @@ color:black;
 	/*border:1px solid red;*/
 	float:left;
 	width:100%;
+	padding:10px 0 10px 10px;
 }
 
 .comments_contant{
@@ -118,24 +119,31 @@ color:black;
     /*display: inline;*/
     font-family: arial,"lucida grande",tahoma,verdana,sans-serif;
     font-size: 14px;
-    height: 40px;
-    overflow: hidden;
-    padding: 9px 18px 9px 9px;
+    min-height: 60px;
+    /*overflow: hidden;*/
+    padding: 5px 2px 2px 5px;
     white-space: pre-wrap;
-    width: 400px;
+    width: 435px;
 	margin-left:10px;
     word-wrap: break-word;
-	resize: none;
+	resize: vertical;
 }
 
 .modal-backdrop {
   position: fixed;
+  height:100%;
   top: 0;
   right: 0;
   bottom: 0;
   left: 0;
   z-index: 1040;
   background-color: #000000;
+}
+
+.modal-footer .btn:hover,
+.modal-footer .btn:focus{
+    background-color: #E6E6E6;
+    color: #333333;
 }
 
 .modal-backdrop.fade {
@@ -148,7 +156,7 @@ color:black;
   filter: alpha(opacity=80);
 }
 
-.modal {
+.modal_wnd {
   position: absolute;
   top: 10%;
   left: 30%;
@@ -217,16 +225,28 @@ color:black;
   
   
 }
+.modal-prebody-inner{
+	width: 100%; 
+	border-bottom: 1px solid #DDDDDD; 
+	min-height: 80px; 
+	overflow: hidden;
+}
 
-
+.modal-body-inner {
+  box-shadow: 0 10px 5px -11px #DDDDDD inset;
+  position: relative;
+  min-height:80px;
+  max-height: 270px;
+  padding: 0 0 0 10px;
+  overflow-y: auto;
+}
 .modal-body {
   position: relative;
   min-height:80px;
   max-height: 400px;
-  padding: 15px;
+  padding: 15px 0 0 0;
   overflow-y: auto;
 }
-
 .modal-footer {
   /*padding: 14px 15px 15px;*/
   height:45px;
@@ -337,7 +357,7 @@ color:black;
 .hc_loading {
     background: url("../img/loading-app.gif") no-repeat scroll 0 0 transparent;
     height: 10px;
-    margin-top: 10px;
+    margin: 0 10px;
     width: 80px;
 }
 
@@ -348,7 +368,7 @@ color:black;
     position: relative;
 }
 .hs_message .hs_message {
-    margin-left: 30px;
+    margin-left: 27px;
     margin-top: 5px;
     min-width: 300px;
     padding-bottom: 0;

@@ -143,7 +143,6 @@ Class Mysql extends Sql
 			}
 		}
 		$sql = parent::update($fields, $tables, $where, $limit);
-		//var_dump($sql);
 		if(!$query = $this->sql($sql)){
 			throw new Exception ("Can't UPDATE execute the query! Sorry");
 		}

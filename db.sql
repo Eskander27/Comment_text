@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS `comet` (
   `comment` int(11) NOT NULL,
   `has_reply` tinyint(1) NOT NULL,
   `selected_block` int(11) NOT NULL,
+  `status_block` tinyint(1) NOT NULL,
   PRIMARY KEY (`ID`),
   UNIQUE KEY `ID` (`ID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;

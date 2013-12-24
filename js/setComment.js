@@ -1,20 +1,22 @@
-$.fn.setComment = function(options){
+$.fn.setComment = function(options,callback){
 	if(typeof options == "undefined"){
         options = {};
-    }
-    options.holder = $(this);
+	}
+	options.holder = $(this);
 	$(this).addClass('setCommentClass');
-	return new setComment(options);
+	return new setComment(options,callback);
 }
-function setComment(options){
-	this.init(options);
+function setComment(options,callback){
+	this.init(options,callback);
 	return this;
 }
 setComment.prototype = {
-	init: function(options){
+	init: function(options,callback){
         this.options = $.extend({
 			holder : '',
 			withAutorization:false,
+			debug:false,
+			webSocket:false,
 			maxAjax:false,
 			cssSelected: 'select',
 			cssCommented:'comment',
@@ -22,11 +24,15 @@ setComment.prototype = {
 			urlSelectedRead:'url_selected',
 			flagFullWords:true
 		},options);
+		this.imgUrl = 'img/avatar.gif';
+		this.callbackAfterLoad = callback;
 		this.MAX_TITLE_SYMBOL = 45;
 		this.TIMEOUT = 360;
 		this.idClient = this.idClient || this.getIdClient();
 		this.lastId = '';
 		this.flagSuccessAddComent = true;
+		this.flagClickAuthorizBtn = false;
+		this.flagFirstStart = true;
 		this.dataComments = {};
 		this.objModal = {};
 		this.authObj = {};
@@ -35,7 +41,7 @@ setComment.prototype = {
 		this.fullHTML = this.getFullHTML();
 		this.connection();
 		this.initAuth();
-		this.bindEvents();
+		//this.bindEvents();
     },
 	getIdClient:function(){
 		return Math.round(Math.random(+new Date() + Math.random()) * 100000000);
@@ -43,21 +49,24 @@ setComment.prototype = {
 	getLengthObj: function(obj){
 		var key,res=0,type=Object.prototype.toString.call(obj);
 		if(type ==='[object Array]' || type ==='[object Object]' ){
-			for(key in obj)
-				res++;
+			for(key in obj){
+				if(obj.hasOwnProperty(key))
+					res++;
+			}
 		}
 		return res;
 	},
 	getData: function(obj,holder) {
 		var _this = holder;
-		objData = obj['data'];
-		if(_this.idClient != obj['idClient'] || !_this.idClient)	{
+		if(_this.idClient != obj['idClient'] || !_this.idClient){
 			_this.getAjaxSelected(_this.highlightAllComments,_this);
-			if(this.objModal.flagShowModal===true){
-				if($(this.modal).attr('dataparentid') == obj['block'] || obj['block'] == -1){
-					var _this = this;
-					this.getAjaxDataObj({holder:_this, callback:_this.getAllComments,lastObj:_this.data});
-				}
+			_this.refreshModalAfterComet(obj['block']);
+		}
+	},
+	refreshModalAfterComet: function(idblock){
+		if(this.objModal.flagShowModal===true){
+			if($(this.modal).attr('dataparentid') == idblock ){
+				this.getAjaxDataObj({holder:this, callback:this.getAllComments,lastObj:this.data});
 			}
 		}
 	},
@@ -71,11 +80,70 @@ setComment.prototype = {
 		}else if(typeof(ndata)=='object' && ndata.length==0){
 			_this.lastId = '';
 		}
-		setTimeout(function(){_this.connection(_this);},1000);
+		setTimeout(function(){_this.connectionLongPoling(_this);},1000);
+	}, 
+	connection: function(){
+		if(this.options.webSocket && 'WebSocket' in window){
+			this.debug('web sockets is supporting');
+			this.webSocketConnection();
+		}else{
+			this.connectionLongPoling(this);
+		}
 	},
-	connection: function(holder) {
+	arrConvertToObjIncreaseKeyOne: function(arr){
+		var key,obj={};
+		for(key in arr)
+			obj[+key+1] = arr[key];
+		return obj;
+	},
+	debug: function(message){
+		if(this.options.debug === true){
+			if(console && console.log && message!='') 
+				console.log(message);
+		}
+	},
+	webSocketConnection: function(){
+		var _this = this
+			,flagWSConnect = false
+			,count = 0
+			,maxCount = 6;//счетчик повторений ожидания ответа от NodeJS (6*500ms = 3s)
+		_this.socket = io.connect('http://localhost:8080');
+		_this.socket.on('getBlocks', function (data){
+			_this.debug('event getBlocks');
+			flagWSConnect = true;
+			_this.flagWS = true;
+			_this.arrObjComment = _this.arrConvertToObjIncreaseKeyOne(data);
+			_this.highlightAllComments(_this.arrObjComment);
+			if(_this.callbackAfterLoad && $.isFunction(_this.callbackAfterLoad) ){
+				_this.callbackAfterLoad();
+			}
+		});
+		_this.socket.on('getComments', function (data){
+			if(data.idClient !== _this.idClient){
+				_this.refreshModalAfterComet(data['json']['id']);
+			}
+		});
+		_this.socket.on('getCommentsAfterReply', function (data){
+			if(data.idClient !== _this.idClient){
+				_this.refreshModalAfterComet(data['json']['idBlock']);
+			}
+		});
+		var tmr = setInterval(function(){
+			count++;
+			if(flagWSConnect===true ){
+				clearInterval(tmr);
+			}else if(flagWSConnect===false && count===maxCount){
+				_this.debug('server NodeJS is not running');
+				_this.connectionLongPoling(_this);
+				clearInterval(tmr);
+			}
+		},500);
+	},
+	connectionLongPoling: function(holder) {
 		var url,_this = holder || this;
+		_this.flagWS = false;
 		url = _this.options.urlComet;
+		_this.debug('AJAX long poling connect');
 		if(url.search('.json') != -1){
 			url = url.replace('/.json','') + _this.lastId +'/.json' ;
 		}
@@ -87,7 +155,7 @@ setComment.prototype = {
 					_this.parseData(ndata,_this);
 				},
 				error:function(){
-					setTimeout(function(){_this.connection(_this);},1000);
+					setTimeout(function(){_this.connectionLongPoling(_this);},1000);
 				}
 			});
 	},
@@ -101,6 +169,19 @@ setComment.prototype = {
 		}
 		_this.resetHTML = html;
 		_this.setNewHTML(html);
+		if(_this.callbackAfterLoad && $.isFunction(_this.callbackAfterLoad) ){
+			_this.debug('bind events');
+			_this.callbackAfterLoad();
+			if(_this.flagFirstStart===true){
+				_this.bindEvents();
+				_this.flagFirstStart=false;
+			}
+		}else{
+			if(_this.flagFirstStart===true){
+				_this.bindEvents();
+				_this.flagFirstStart=false;
+			}
+		}
 	},
 	prepare: function(el){
 		if(el.normalize) {
@@ -111,7 +192,7 @@ setComment.prototype = {
 		var _this, url='error';
 		_this = holder || this;
 		if(_this.options!=null && _this.options.urlSelectedRead!=null){
-				url = _this.options.urlSelectedRead;
+			url = _this.options.urlSelectedRead;
 		}
 		$.ajax(url,{
 				dataType: 'json',
@@ -126,6 +207,7 @@ setComment.prototype = {
 			window.getSelection().removeAllRanges(); 
 		}else if (document.selection && document.selection.clear)
 			document.selection.clear();
+
 	},
 	filterObject:function(lastObj,newObj,holder){
 		var _this = holder,key,i=0,lastLength,newLength,resObj=[];
@@ -184,7 +266,7 @@ setComment.prototype = {
 				success: function(data){
 					var obj={},key,key2;
 					_this.data = data;
-					if(paramsObj.lastObj!=null) {
+					if(paramsObj.lastObj!=null && $.isEmptyObject(paramsObj.lastObj)!==true){
 						data = _this.filterObjectRecur(paramsObj.lastObj, data, _this);
 						if(Object.prototype.toString.call(data)==='[object Array]'){
 							for(key in data){
@@ -257,9 +339,10 @@ setComment.prototype = {
 		if(typeof this.options.withAutorization!='undefined' && $.type(this.options.withAutorization)=='object' ){
 			if(this.options.withAutorization.VK !=null && this.options.withAutorization.VK.apiId !=null){
 				this.authStr += ' '+ 'authVK';
+				_this.redefineVK();
 				VK.init({
 					apiId: _this.options.withAutorization.VK.apiId
-				});	
+				});
 			}
 			if(this.options.withAutorization.FB !=null && this.options.withAutorization.FB.apiId !=null){
 				this.authStr += ' '+ 'authFB';
@@ -272,17 +355,15 @@ setComment.prototype = {
 				mailru.loader.require('api', function(){
 					mailru.connect.init(_this.options.withAutorization.MRu.apiId, _this.options.withAutorization.MRu.key);
 					mailru.events.listen(mailru.connect.events.login, function(session) {
-						if(session.vid){						
+						if(session.vid){
 							mailru.common.users.getInfo(function(user_list) {
 									if(typeof user_list['error'] != 'undefined' && count==0){
-										console.log('-');
 										count++;
 										mailru.connect.logout();
 										setTimeout(function(){
 											mailru.connect.login(['widget']);
 										},2000);
 									}else{
-										console.log('+');
 										count=0;
 										_this.authInfoCallbackMRu(user_list,_this);
 										_this.closeModalAuth();
@@ -300,9 +381,67 @@ setComment.prototype = {
 					src = 'js/api.js';
 				}*/
 			}
+			this.authStr += ' '+ 'authNO';
 		}else if (this.options.withAutorization === false){
 			this.authStr += ' '+ 'authNO';
 		}
+	},
+	redefineVK: function(){
+		VK.Auth.login = function(cb, settings) {
+			var channel, url;
+			if (!VK._apiId) {
+				return false;
+			}
+			channel = window.location.protocol + '//' + window.location.hostname;
+			url = VK._domain.main + VK._path.login + '?client_id='+VK._apiId
+				+'&display=popup&redirect_uri=close.html&response_type=token';
+			if (settings && parseInt(settings, 10) > 0) {
+				url += '&scope=' + settings;
+			}
+			VK.Observer.unsubscribe('auth.onLogin');
+			VK.Observer.subscribe('auth.onLogin', cb);
+			VK.UI.popup({
+				width: 620,
+				height: 370,
+				url: url
+			});
+			var authCallback = function() {
+				VK.Auth.getLoginStatus(function(resp) {
+					VK.Observer.publish('auth.onLogin', resp);
+					VK.Observer.unsubscribe('auth.onLogin');
+				}, true);
+			}
+			var regEvent = function(customEvnt){
+				if (document.createEvent){
+					var e = document.createEvent("Events");
+					e.initEvent(customEvnt, true, false);
+				}else if (document.createEventObject) { // Модель событий IE
+					var e = document.createEventObject();
+				}
+				else return;
+				target = window.document;
+				if (target.dispatchEvent) target.dispatchEvent(e); // DOM
+				else if (target.fireEvent) target.fireEvent(customEvnt, e); // IE
+			}
+			VK.UI.popupOpened = true;
+			var popupCheck = function() {
+				if (!VK.UI.popupOpened) { regEvent('vk_error_open');return false;}
+				try {
+					if (!VK.UI.active.top || VK.UI.active.closed) {
+						VK.UI.popupOpened = false;
+						regEvent('vk_close');
+						authCallback();
+						return true;
+					}
+				}catch(e) {
+					VK.UI.popupOpened = false;
+					authCallback();
+					return true;
+				}
+				setTimeout(popupCheck, 100);
+			};
+			setTimeout(popupCheck, 100);
+		};
 	},
 	redefineMailru:function(){
 		mailru.connect.login=function(scope) {
@@ -343,9 +482,8 @@ setComment.prototype = {
 							if (!mailru.session.login) mailru.events.notify(mailru.connect.events.loginFail);
 						}
 					}
-
 				}
-			}	
+			}
 	},
 	authInfoCallbackFB:function(response,holder) {
 		var _this;
@@ -361,6 +499,7 @@ setComment.prototype = {
 						"type":'Facebook',
 						"uid":response.id
 					}
+					_this.flagClickAuthorizBtn = true;
 					$(document).triggerHandler('authFB');
 				});
 			}
@@ -380,6 +519,7 @@ setComment.prototype = {
 						"uid":VK.authObj.uid,
 						"type":'VK'
 						};
+				_this.flagClickAuthorizBtn = true;
 				$(document).triggerHandler('authVK');
 			});
 		} else {
@@ -393,12 +533,13 @@ setComment.prototype = {
 		_this.authObj.photo = response[0].pic;
 		_this.authObj.nick = response[0].nick;
 		_this.authObj.uid = response[0].uid;
+		_this.flagClickAuthorizBtn = true;
 		$(document).triggerHandler('authMRu');
 	},
 	getCommentObj:function(obj,parent){
 		var url='',nick='',time='',id='',_this = this,text='';
 		if(obj==null) return '';
-		if(obj.img_url != null && obj.img_url != '') {url = obj.img_url;}else url ='img/avatar.gif';
+		if(obj.img_url != null && obj.img_url != '') {url = obj.img_url;}else url =_this.imgUrl;
 		if(obj.id != null) id = obj.id;
 		if(obj.nick != null) {
 			nick = (obj.nick=='') ? 'Guest' : obj.nick;
@@ -444,7 +585,7 @@ setComment.prototype = {
 		var _this = this, sel, rng, r2, i= -1;
 		var objSel = _this.getSelectedText();
 			sel = objSel.obj;
-			if(sel!=null){		
+			if(sel!=null){
 				rng = _this.createRangeFromSel(sel);
 				if(_this.flagSuccessAddComent==true){
 					_this.lastHTML = _this.getFullHTML();
@@ -458,7 +599,7 @@ setComment.prototype = {
 							r2.setEndPoint("EndToStart", rng);
 							i = r2.text.length;
 					}else{
-						var obj;	
+						var obj;
 						if(rng.startContainer.nodeName != '#text' && rng.startContainer.previousSibling!=null){
 							obj = rng.startContainer;
 							_this.flagPreviousChild = false;
@@ -466,11 +607,12 @@ setComment.prototype = {
 							obj = rng.startContainer.previousSibling;
 							_this.flagPreviousChild = true;
 						}
-						if(obj == null){	
+						if(obj == null){
 							_this.flagPreviousChild = false;
 							obj = rng.startContainer.parentNode;
 						}
 						var length = _this.getLengthTextToRangNode(_this.options.holder,obj);
+						
 						if(length == -1) return -1;
 						if(
 							rng.startContainer &&
@@ -551,17 +693,22 @@ setComment.prototype = {
 		}
 	},
 	bindEvents: function(){
-		var left, top, _this = this;;
-		$(document).bind('vk_close',function(){
+		var left, top, _this = this,flagHover = 'mouseout';
+		$(document).on('vk_close',function(){
 			_this.closeModalAuth();
 		});
-		$(document).bind(_this.authStr,function(event){//authorization events
+		$(document).on(_this.authStr,function(event){//authorization events
 			_this.authObj.text = $.trim($(_this.textarea).val());
 			_this.freezeSelection();
 			_this.addComments(_this.authObj,_this.messageNode);
 		});
-		$(document).bind('mouseup',function(e){
-			if($(e.target).hasClass('.setCommentClass') || $(e.target).closest('.setCommentClass').length > 0){
+		$(document).on('mouseup',function(e){
+			if($(e.target).hasClass('setCommentClass') || $(e.target).closest('.setCommentClass').length > 0){
+				if($(e.target).closest('.setCommentClass').length > 0){
+					_this.options.holder = $(e.target).closest('.setCommentClass');
+				}else if($(e.target).hasClass('setCommentClass') ===true){
+					_this.options.holder = $(e.target);
+				}
 				if(_this.flagClickCommented === true){
 					var self = $(e.target).closest('.setCommentClass').get(0);
 					if($(e.target).hasClass(_this.options.cssSelected)===false){
@@ -570,7 +717,7 @@ setComment.prototype = {
 						var topUp = obj.top;
 						if(leftUp==left && topUp==top){
 							flagNoMove=true;
-						}			
+						}
 						obj = _this.getSelectedText();
 						_this.dataComments.selectedtext = obj.text;	
 						var startPosition = _this.getCharPosition(self);
@@ -586,6 +733,10 @@ setComment.prototype = {
 							_this.startPos = _this.getPositionHtmlFromText(objTegs, startPosition);
 							_this.endPos = _this.getPositionHtmlFromText(objTegs, endPosition);
 							_this.highlightText(_this.fullhtml, _this.startPos, _this.endPos);
+							var obj = {};
+							obj.el = $('.'+_this.options.cssSelected);
+							obj.event = e;
+							flagHover = _this.hoverSelection(_this, obj, flagHover);
 						}
 					}else{
 						return false;
@@ -593,24 +744,19 @@ setComment.prototype = {
 				}
 			}else{
 				if($(e.target).closest('.hypertext_add_text').length == 0 
-					&& $(e.target).closest('.modal').length == 0 
+					&& $(e.target).closest('.modal_wnd').length == 0 
 					&& $(e.target).is('.modal-backdrop')===false){
 						_this.setNewHTML(_this.resetHTML);
 						_this.hideCommentToolTip();
 				}
 			}
 		});
-		$(document).bind('mousemove',function(event){
-			if(typeof _this.modal !='undefined' && typeof _this.modal.flagmove !='undefined' 
-				&& _this.modal.flagmove == true){
-					_this.mouseMoveModal(event,_this.modal);
-			}
-			if(typeof _this.modalAuth !='undefined' && typeof _this.modalAuth.flagmove !='undefined' 
-				&& _this.modalAuth.flagmove == true){
-					_this.mouseMoveModal(event,_this.modalAuth);
-			}
+		$(document).on('mousemove',function(event){
+			var obj={};
+			obj.event = event;
+			flagHover = _this.hoverSelection(_this,obj,flagHover);
 		});
-		$(this.options.holder).bind('mousedown',function(e){
+		$(document).on('mousedown',function(e){
 			if($(e.target).hasClass(_this.options.cssCommented)===false){
 				_this.flagClickCommented = true;
 				var obj,self = $(this).get(0);
@@ -629,18 +775,58 @@ setComment.prototype = {
 				_this.clickCommentedField(self,_this.getAjaxDataObj,{holder:_this, callback:_this.getAllComments});
 			}
 		});
-		$('.'+this.options.cssSelected).live('hover',function(event){
-			var id = $(this).attr('data-parentid');
-			_this.dataComments.idcomment = id;
-			var obj = _this.getMousePosition(event);
-			if($(this).hasClass('active_comments')===false){
-				if(_this.createCommentToolTip(obj.left, obj.top + 10, id) == false && _this.flagShowComment == false){
-					_this.showCommentToolTip(obj.left, obj.top + 10, id);
-				}
+	},
+	hoverSelection:function(holder,obj,flagHover){
+		var _this = holder,el;
+		if(obj.el){
+			el = obj.el;
+		}else{
+			el = obj.event.target;
+		}
+		var event = obj.event;
+		if(typeof _this.modal !='undefined' && typeof _this.modal.flagmove !='undefined' 
+		   && _this.modal.flagmove == true){
+				_this.mouseMoveModal(event,_this.modal);
+			}else if(typeof _this.modalAuth !='undefined' && typeof _this.modalAuth.flagmove !='undefined' 
+				    && _this.modalAuth.flagmove == true){
+						if(event)_this.mouseMoveModal(event,_this.modalAuth);
 			}else{
-				_this.showModal(_this.dataComments);
-			}
-		});
+				if(_this.flagflag===true 
+				   && !($(el).hasClass('hypertext_dialog_menus') || $(el).closest('.hypertext_dialog_menus').length >0)
+				   && $(el).hasClass(_this.options.cssSelected)===false){
+						_this.hideCommentToolTip();
+						_this.flagflag=false;
+				}else{
+					if($(el).hasClass(_this.options.cssSelected)===true && flagHover==='mouseout' /*&& typeof event != 'undefined'*/){
+						var self = $(el);
+						var deltaHeight = $(el).height();
+						var deltaLeft = 10;
+						var objDelta = _this.getMousePositionInsideEl(event, el);
+						flagHover='mousein';
+						var id = $(self).attr('data-parentid');
+						_this.dataComments.idcomment = id;
+						var obj = _this.getMousePosition(event);
+						if($(self).hasClass('active_comments')===false){
+							var delta = deltaHeight - objDelta.top;
+							if(/msie/.test(navigator.userAgent.toLowerCase())) delta = delta-1;
+							if(_this.createCommentToolTip(obj.left, obj.top + delta, id) == false 
+							   && _this.flagShowComment == false){
+									_this.showCommentToolTip(obj.left-deltaLeft, obj.top + delta, id);
+							}
+						}else{
+							//_this.showModal(_this.dataComments);
+						}
+					}else if($(el).hasClass(_this.options.cssSelected)!==true && flagHover==='mousein'){
+						flagHover='mouseout';
+						if($(el).hasClass('hypertext_dialog_menus')===true){
+							_this.flagflag = true;
+						}else{
+							_this.hideCommentToolTip();
+						}
+					}
+				}
+		}
+		return flagHover;
 	},
 	showAuthWindow:function(){
 		var obj,_this = this,val = $.trim($(this.textarea).val());
@@ -652,15 +838,19 @@ setComment.prototype = {
 					};
 				$(document).triggerHandler('authNO');
 			}else{
-				this.hideModal(true);
-				this.showModalAuth();
+				if(this.flagClickAuthorizBtn===false){
+					this.hideModal(true);
+					this.showModalAuth();
+				}else{
+					$(document).triggerHandler('authNO');
+				}
 			}
 		}else{
 			alert('Text field can not be empty!');
 		}
 	},
 	addComments:function(objInput,parent){
-		var length,count,text = '',nick='',photo='',obj = {};
+		var length,count,text = '',nick='',uid,type,photo='',obj = {};
 		if(this.data == null){
 			this.data = {};
 		}
@@ -674,14 +864,17 @@ setComment.prototype = {
 			}else{ 
 				photo = '';
 			}	
-			if(objInput.nick!=null) 
-				nick = objInput.nick;
+			if(objInput.nick!=null) nick = objInput.nick;
+			if(objInput.type!=null) type = objInput.type;
+			if(objInput.uid!=null) uid = objInput.uid;
 		}
 		obj = {
 			"nick" : nick,
 			"img_url" : photo,
 			"datatime" : "",
 			"comment" : text,
+			"type":type,
+			"uid":uid,
 			"id":parent.numberComment
 		};
 		obj.startPos = this.arrObjComment[length]['startPos'];
@@ -714,7 +907,8 @@ setComment.prototype = {
 	},
 	addCommentsDOM: function(obj,parent){
 		var _this=this, comment = this.getCommentObj(obj);
-		if(parent!=null && parent.reference!=null){
+		if(parent!=null && parent.reference!=null){//adding reply 
+			_this.debug('reply');
 			$(parent.reference).append(comment);
 			parent.reference = null;
 			var id = parent.numberComment;
@@ -731,6 +925,7 @@ setComment.prototype = {
 				}
 				$(this.allComments).append(comment);
 			}else{
+				//adding first comment
 				if($.isEmptyObject(_this.data)){
 					_this.data[0] = obj;
 				}
@@ -740,7 +935,7 @@ setComment.prototype = {
 		this.messageNode = {};
 	},
 	sendObjCommentsAjax:function(obj,count,parent){
-		var _this = this,type='POST';
+		var _this = this,type='POST',data,eventWS='addComment',flagEmptyWnd=false;
 		if(this.options!=null && this.options.urlCommentsWrite!=null && this.options.urlCommentsRead!=null){
 			var url = this.options.urlCommentsWrite;
 		}
@@ -748,22 +943,35 @@ setComment.prototype = {
 			obj.id = $(this.modal).attr('dataparentid');
 		}
 		if($.isEmptyObject(_this.data)){//т.е. модальное окно чистое,комментариев нет
+			flagEmptyWnd = true;
 			obj['selectedtext'] = this.dataComments['selectedtext'];
+			obj['idBlock'] = -1;
 		}
 		if($.isEmptyObject(parent)===false){//т.е. клик был по - reply
+			_this.debug('click reply');
+			if(_this.flagWS){
+				eventWS='addReply';
+			}	
 			type='PUT';
 			url = this.options.urlReplyWrite;
+			obj['idBlock'] = $(this.modal).attr('dataparentid');
 		}
-		var data = 'json=' + $.toJSON(obj) + '&idClient=' + _this.idClient + '&flagModal=' + _this.objModal.flagShowModal;
+		if(_this.flagWS && _this.socket){
+			var objWS = {'json':obj,'idClient':_this.idClient,'flagModal':_this.objModal.flagShowModal,'flagEmptyWnd':flagEmptyWnd};
+		}
+		data = 'json=' + $.toJSON(obj) + '&idClient=' + _this.idClient + '&flagModal=' + _this.objModal.flagShowModal;
 		$.ajax(url,{
 					dataType: 'json',
 					type:type,
 					data:data,
 					success: function(res){
-						obj['id'] = res['id'];
-						obj['parentid'] = res['parentid'];
-						obj['datatime'] = res['datatime'];
-						_this.addCommentsDOM(obj,parent);
+						if(_this.flagWS){
+							_this.socket.emit(eventWS, objWS);
+						}
+							obj['id'] = res['id'];
+							obj['parentid'] = res['parentid'];
+							obj['datatime'] = res['datatime'];
+							_this.addCommentsDOM(obj,parent);
 					}
 		});
 	},
@@ -869,9 +1077,11 @@ setComment.prototype = {
 				}
 			});
 			setTimeout(function(){
-				if(flagOpenDialog===false)
+				if(flagOpenDialog===false){
 					_this.closeModalAuth();
-			},2000);
+					_this.debug('Error in url');
+				}
+			},3000);
 		});
 		var btnFB = $('<div/>').addClass('auth_type_bt_fb');
 		var btnTitleFB=$('<div/>').addClass('auth_type_bt_title').text('Facebook');
@@ -881,7 +1091,7 @@ setComment.prototype = {
 	createModalAuth: function(){
 		var _this=this;
 		if(this.modalAuth == null){
-			this.modalAuth = $('<div/>').attr({'id':'modal_auth'}).addClass('modal').css('display','none')
+			this.modalAuth = $('<div/>').attr({'id':'modal_auth'}).addClass('modal_wnd').css('display','none')
 				.bind({ 'mousedown': function(event){_this.mouseDownModal(event,_this.modalAuth)},
 						'mouseup':  function(event){_this.mouseUpModal(event,_this.modalAuth)}
 				});
@@ -909,7 +1119,7 @@ setComment.prototype = {
 						$(modalBody).append(blockMRu);
 					}
 				}
-				$(this.modalAuth).append(modalHeader).append(modalBody);//.append(modalFooter);
+				$(this.modalAuth).append(modalHeader).append(modalBody);
 				$('body').append(this.modalAuth);
 				if(typeof this.backdrop=='undefined'){ 
 					this.backdrop = $('<div/>').addClass('modal-backdrop');
@@ -938,7 +1148,7 @@ setComment.prototype = {
 			titleText = title;
 			
 		if(this.modal == null){
-			this.modal = $('<div/>').attr({'id':'modal_comments','dataparentid':dataParentId}).addClass('modal').css('display','none')
+			this.modal = $('<div/>').attr({'id':'modal_comments','dataparentid':dataParentId}).addClass('modal_wnd').css('display','none')
 				.bind({ 'mousedown': function(event){_this.mouseDownModal(event,_this.modal)},
 						'mouseup':  function(event){_this.mouseUpModal(event,_this.modal)}
 				});
@@ -950,18 +1160,22 @@ setComment.prototype = {
 				$(modalHeader).append(button).append(this.modalTitle);
 			var modalBody = $('<div/>').addClass('modal-body');
 				this.div_anim = $('<div/>').addClass('hc_loading').css('display','none');
-				this.container = $('<div/>').addClass('container_comments');
+			this.modalPreBodyInner = $('<div/>').addClass('modal-prebody-inner');
 				var containerDiv = $('<div/>').addClass('textarea_outer');
 				var img = $('<div/>').addClass('img');
 				this.textarea = $('<textarea/>').addClass('textarea');
 				$(containerDiv).append(img).append(this.textarea);
-				$(this.container).append(containerDiv);
-				$(modalBody).append(this.div_anim).append(this.container);
+				$(this.modalPreBodyInner).append(containerDiv);
+			this.modalBodyInner = $('<div/>').addClass('modal-body-inner');
+				this.container = $('<div/>').addClass('container_comments');
+				$(this.modalBodyInner).append(this.container);
+				
 				var modalFooter = $('<div/>').addClass('modal-footer');
 				var a1 = $('<div/>').addClass('btn action_commented').text('Комментировать').on('click', function(){
 						_this.clickCommentBtnModulWnd();
 					});
 				$(modalFooter).append(a1);//.append(a2);
+				$(modalBody).append(this.div_anim).append(this.modalPreBodyInner).append(this.modalBodyInner);
 				$(this.modal).append(modalHeader).append(modalBody).append(modalFooter);
 				$('body').append(this.modal);
 				if(typeof this.backdrop=='undefined'){ 
@@ -994,11 +1208,13 @@ setComment.prototype = {
 		this.objModal.flagShowModal = false;
 	},
 	showAnimateModal: function(){
-		$(this.container).css('display','none');	
+		$(this.modalBodyInner).css('display','none');
+		$(this.modalPreBodyInner).css('display','none');
 		$(this.div_anim).css('display','block');
 	},
 	hideAnimateModal: function(){
-		$(this.container).css('display','block');	
+		$(this.modalBodyInner).css('display','block');
+		$(this.modalPreBodyInner).css('display','block');
 		$(this.div_anim).css('display','none');
 	},
 	showModalAuth: function(){
@@ -1030,6 +1246,16 @@ setComment.prototype = {
 		var top = event.pageY;
 		var left = event.pageX;
 		return {top:top, left:left}
+	},
+	getMousePositionInsideEl: function(event,el){
+		var top = event.pageY;
+		var left = event.pageX;
+		if(typeof el=='undefined'){
+			el = event.target;
+		}
+		var topParent = $(el).offset().top;
+		var leftParent = $(el).offset().left;
+		return {top:top-topParent, left:left-leftParent}
 	},
 	getBlockPosition: function(el){
 		var top = $(el).offset().top;
@@ -1218,13 +1444,16 @@ setComment.prototype = {
 $(document).ready(function() {
 	$('#testDiv').setComment({	cssSelected:'selected',
 								cssCommented:'commented',
-								withAutorization:{
+								withAutorization:
+								{
 									'VK':{apiId:'3363455'},
-									'FB':{apiId:'760989390581149'},
+									'FB':{apiId:'760989390581149'}
 									//'Odn':{apiId:'1'},
-									'MRu':{apiId:'710869',
-										  key:'c4ceae589a03fb9cc65c78f394b78a10'}
+									//'MRu':{apiId:'710869',
+									//	  key:'c4ceae589a03fb9cc65c78f394b78a10'}
 								},
+								//webSocket:true,
+								debug:true,
 								//maxAjax:false,
 								/*maxComment:'api/db/MaxComment/.json',*/
 								urlCommentsRead:'api/db/comments/.json',

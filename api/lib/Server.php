@@ -59,7 +59,7 @@ Class Server
 				$arrLength = count($arrParams);
 				if($arrLength >0){
 					$str = $arrParams[$arrLength-1];
-					if(substr_count($str,"=")<>0){//т.е. есть query парамметры типа ?p1=1&p2=2
+					if(substr_count($str,"=")<>0){//С‚.Рµ. РµСЃС‚СЊ query РїР°СЂР°РјРјРµС‚СЂС‹ С‚РёРїР° ?p1=1&p2=2
 						$parse = parse_url($path);
 					}
 				}
@@ -312,7 +312,8 @@ Class Server
 		}
 		$res = $this->model->putReply($arrParam);
 		$arr['comment'] = $arrParam['id'];
-		$arr['selected_block'] = -1;
+		$arr['status_block'] = -1;
+		$arr['selected_block'] = $arrParam['idBlock'];
 		if(isset($res['success']) && $res['success']==true){
 			if(isset($res['idreply'])) { 
 				$arr['hasreply'] = $res['idreply'];
@@ -363,12 +364,25 @@ Class Server
 		}
 		
 		$arr = json_decode($arrParam['json'],1);
-		if(isset($arr['id'])){
+		if(isset($arr['idBlock'])){
+			if($arr['idBlock'] !== -1){
+				$arrParam['selected_block'] = $arr['idBlock'];
+				$arrParam['status_block'] = -1;
+			}else{
+				$arrParam['selected_block'] = $arr['id'];
+				$arrParam['status_block'] = 1;
+			}
+		}elseif(isset($arr['id'])){
 			$arrParam['selected_block'] = $arr['id'];
+			$arrParam['status_block'] = -1;
 		}
+		
+		
 		$res = $this->model->postComment($arr);
 		if(isset($res['success']) && $res['success']==true){
-			if(isset($res['id'])) { $arrParam['comment'] = $res['id'];}
+			if(isset($res['id'])) { 
+				$arrParam['comment'] = $res['id'];
+			}
 			$res2 = $this->postComet($this->idClient,$arrParam);			
 			if(!$res2){
 				return array('success'=>false,'msg'=>'Error in comet table');
@@ -398,12 +412,14 @@ Class Server
 				$newcomment = $arr[0][3];
 				$hasreply = $arr[0][4];
 				$block = $arr[0][5];
+				$status = $arr[0][6];
 				return array('lastCount'=>$this->lastCount,
 							'idClient'=>$this->idClient,
 							'data'=>$this->getSelectedBlock(),
 							'newcomment'=>$newcomment,
 							'hasreply'=>$hasreply,
-							'block'=>$block
+							'block'=>$block,
+							'statusBlock'=>$status
 							);
 				flush();
 				exit;

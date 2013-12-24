@@ -148,27 +148,57 @@ Class Model
 		
 		return $res;
 	}	
-	
-	private function postUser($nick,$url)
+
+	private function postUser($arrParam)
 	{
-		$res = $this->mysql->insert(array('`id`',
-								'`nickname`',
-								'`url_photo`'),
+		$res = $this->getCountUser($arrParam);
+		if(is_array($res)){
+			$count = count($res);
+		}else{
+			$count=0;
+		}
+		if($count==0){			
+			$res = $this->mysql->insert(array('`id`','`idNet`','`NameNet`',
+									'`nickname`',
+									'`url_photo`'),
+				array('selection.users'),
+				array(NULL,
+					$arrParam['uid'],
+					$arrParam['type'],
+					$arrParam['nick'],
+					$arrParam['img_url']));
+			$id = $this->getUserMaxID();
+		}else{
+			$id = $res[0]['id'];
+			//file_put_contents('123.txt', $id);
+			$res = $this->mysql->replace(array('`id`','`idNet`','`NameNet`',
+									'`nickname`',
+									'`url_photo`'),
 			array('selection.users'),
-			array(NULL,
-				$nick,
-				$url));		
-				
-		return $res;
+			array($id,
+				$arrParam['uid'],
+				$arrParam['type'],
+				$arrParam['nick'],
+				$arrParam['img_url']));
+		}
+		//file_put_contents('123.txt', $id);
+		return $id;
 	}
 	
 	public function postComment($arrParam,$flagOuter=false)
 	{
 		date_default_timezone_set('Europe/Kiev');
 		$arrParam['time'] = date("Y-m-d").' '.date("H:i:s");
-		$repl = $this->postUser($arrParam['nick'],$arrParam['img_url']);
-		$arr = $this->getUserMaxID();
-		$arrParam['IdUser'] = $arr[0]['id'];
+		if(isset($arrParam['uid']) && isset($arrParam['type'])){
+			$repl = $this->postUser($arrParam);
+		}else{
+			$arrParam['uid'] = -1;
+			$arrParam['type'] = 'No';
+			$repl = $this->postUser($arrParam);
+		}
+		//$arr = $this->getUserMaxID();
+		//$arrParam['IdUser'] = $arr[0]['id'];
+		$arrParam['IdUser'] = $repl;
 		$res = $this->mysql->insert(array('`id`' ,
 								'`id_reply_str`' ,
 								'`id_user`',
@@ -214,6 +244,7 @@ Class Model
 			if(isset($arr['comment'])) $comment1 = $arr['comment'];else $comment1 = -1;
 			if(isset($arr['hasreply'])) $hasreply = $arr['hasreply'];else $hasreply = -1;
 			if(isset($arr['selected_block'])) $comment2 = $arr['selected_block'];else $comment2 = -1;
+			if(isset($arr['status_block'])) $status = $arr['status_block'];else $status = -1;
 		}
 		$arrRes = $this->getComet();
 		
@@ -223,15 +254,25 @@ Class Model
 			$newID = 1 ;
 		date_default_timezone_set('Europe/Kiev');
 		$time = date("Y-m-d").' '.date("H:i:s");
-		$res = $this->mysql->replace(array('`ID`','`Time`','`IDlast`','`IDclient`','`comment`','`has_reply`','`selected_block`'),
+		$res = $this->mysql->replace(array('`ID`','`Time`','`IDlast`','`IDclient`','`comment`','`has_reply`','`selected_block`','`status_block`'),
 			array('comet'),
-			array(1,$time,$newID,$IDclient,$comment1,$hasreply,$comment2));
+			array(1,$time,$newID,$IDclient,$comment1,$hasreply,$comment2,$status));
 		return $res;
 	}
 	
+	public function getCountUser($arrParam)
+	{
+		$where['where']['values'] = array($arrParam['uid'],$arrParam['type']);
+		$where['where']['fields'] = array('users.idNet = %s ','AND users.NameNet = %s ');
+		$where['where']['quotes'] = array(false,true);
+		$res = $this->mysql->select(array("id",),
+								array('selection.users'),'',$where,'','');
+		return $res;
+	}
+
 	public function getCometID($id)
 	{
-		$res = $this->mysql->select(array("ID","IDlast","IDclient","comment","has_reply","selected_block"),
+		$res = $this->mysql->select(array("ID","IDlast","IDclient","comment","has_reply","selected_block","status_block"),
 								array('selection.comet'),'','','','');
 		return $res;
 	}

@@ -507,8 +507,6 @@ VK.Api = {
       var timer = setInterval(function() {
         if (VK.UI.active.closed) {
           clearInterval(timer);
-		alert('!!!');
-		  
           params.method_access = method_access;
           VK.Api.call(method, params, cb, queryTry);
         }
@@ -673,27 +671,13 @@ VK.Auth = {
         VK.Observer.unsubscribe('auth.onLogin');
       }, true);
     }
-	
-	var regEvent = function(customEvnt){
-		if (document.createEvent){
-			var e = document.createEvent("Events");
-			e.initEvent(customEvnt, true, false);
-		}else if (document.createEventObject) { // Модель событий IE
-			var e = document.createEventObject();
-		}
-		else return;
-		target = window.document;
-		if (target.dispatchEvent) target.dispatchEvent(e); // DOM
-		else if (target.fireEvent) target.fireEvent(customEvnt, e); // IE
-	}
-	
+
     VK.UI.popupOpened = true;
     var popupCheck = function() {
-      if (!VK.UI.popupOpened) { regEvent('vk_error_open');return false;}
+      if (!VK.UI.popupOpened) return false;
       try {
         if (!VK.UI.active.top || VK.UI.active.closed) {
           VK.UI.popupOpened = false;
-		  regEvent('vk_close');
           authCallback();
           return true;
         }
